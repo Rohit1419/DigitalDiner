@@ -53,7 +53,7 @@ export const addMenuItem = async (req, res) => {
       category,
       prepTime,
     });
-    console.log(menuitem);
+
     res.status(201).json({
       success: true,
       data: menuitem,

@@ -20,16 +20,16 @@ dbConnect()
 
 //connection to Postgres
 
-connectPostgres()
-  .then(() => {
-    return syncModels();
-  })
-  .then(() => {
-    console.log("PostgreSQL setup completed");
-  })
-  .catch((err) => {
-    console.log("PostgreSQL setup error", err);
-  });
+// connectPostgres()
+//   .then(() => {
+//     return syncModels();
+//   })
+//   .then(() => {
+//     console.log("PostgreSQL setup completed");
+//   })
+//   .catch((err) => {
+//     console.log("PostgreSQL setup error", err);
+//   });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

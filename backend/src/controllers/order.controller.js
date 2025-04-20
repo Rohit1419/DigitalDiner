@@ -1,12 +1,7 @@
-import Customer from "../models/postgres/coustomer.model.js";
-import Order from "../models/postgres/order.model.js";
-import OrderItem from "../models/postgres/orderItems.js";
-import sequelize from "../db/postgres.js";
+import { MongoOrder } from "../models/mongodb/order.mmodel.js";
 
 // Create a new order
 export const createOrder = async (req, res) => {
-  const t = await sequelize.transaction();
-
   try {
     const { name, phone, items, totalAmount, pickupTime } = req.body;
 
@@ -26,66 +21,37 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // Find or create customer
-    const [customer] = await Customer.findOrCreate({
-      where: { phone },
-      defaults: { name },
-      transaction: t,
-    });
-
-    // Update customer name if it's different
-    if (customer.name !== name) {
-      customer.name = name;
-      await customer.save({ transaction: t });
-    }
-
     // Calculate pickup time based on items or use provided value
     const estimatedPickupTime = pickupTime || calculatePickupTime(items);
 
-    // Create order
-    const order = await Order.create(
-      {
-        customerId: customer.id,
-        totalAmount,
-        status: "pending",
-        pickupTime: estimatedPickupTime, // Store as minutes
-      },
-      { transaction: t }
-    );
-
-    // Create order items
-    const orderItems = await Promise.all(
-      items.map((item) =>
-        OrderItem.create(
-          {
-            orderId: order.id,
-            menuItemId: item.id,
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity || 1,
-          },
-          { transaction: t }
-        )
-      )
-    );
-
-    await t.commit();
+    // Create order with MongoDB
+    const order = await MongoOrder.create({
+      customer: { name, phone },
+      items: items.map((item) => ({
+        menuItemId: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity || 1,
+      })),
+      totalAmount,
+      status: "pending",
+      pickupTime: estimatedPickupTime,
+    });
 
     res.status(201).json({
       success: true,
       data: {
-        orderId: order.id,
+        orderId: order._id,
         customer: { name, phone },
         totalAmount,
         status: order.status,
-        pickupTime: order.pickupTime, // Minutes until pickup
+        pickupTime: order.pickupTime,
         createdAt: order.createdAt,
-        items: orderItems,
+        items: order.items,
       },
       message: "Order placed successfully",
     });
   } catch (error) {
-    await t.rollback();
     res.status(500).json({
       success: false,
       message: error.message,
@@ -130,26 +96,9 @@ export const getOrdersByPhone = async (req, res) => {
       });
     }
 
-    // Find customer by phone
-    const customer = await Customer.findOne({ where: { phone } });
-
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: "No orders found for this phone number",
-      });
-    }
-
-    // Get all orders for this customer
-    const orders = await Order.findAll({
-      where: { customerId: customer.id },
-      include: [
-        {
-          model: OrderItem,
-          attributes: ["menuItemId", "name", "price", "quantity"],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
+    // Find orders by customer phone using MongoDB
+    const orders = await MongoOrder.find({ "customer.phone": phone }).sort({
+      createdAt: -1,
     });
 
     res.status(200).json({
@@ -170,18 +119,7 @@ export const getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const order = await Order.findByPk(id, {
-      include: [
-        {
-          model: Customer,
-          attributes: ["name", "phone"],
-        },
-        {
-          model: OrderItem,
-          attributes: ["menuItemId", "name", "price", "quantity"],
-        },
-      ],
-    });
+    const order = await MongoOrder.findById(id);
 
     if (!order) {
       return res.status(404).json({
@@ -198,7 +136,7 @@ export const getOrderById = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        ...order.toJSON(),
+        ...order.toObject(),
         expectedPickupTime,
       },
       message: "Order details retrieved successfully",
@@ -210,3 +148,5 @@ export const getOrderById = async (req, res) => {
     });
   }
 };
+
+// Update order status (for admin/restaurant staff)
